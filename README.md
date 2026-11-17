@@ -6,6 +6,12 @@ Every day there's one real rule, taken from an official source: an airline regul
 
 There's no right answer to Keep or Cut. The skill is reading the room. The crowd itself is the answer key.
 
+## Links
+
+- App listing: https://developers.reddit.com/apps/readtheroomgame
+- Demo post: https://www.reddit.com/r/readtheroomgame_dev/comments/1xy6x6i/ (in the private test community r/readtheroomgame_dev)
+- Source: https://github.com/PravinrajV/read-the-room
+
 ## How to play
 
 1. Open today's post and tap **Play today's call**.
