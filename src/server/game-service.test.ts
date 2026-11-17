@@ -159,4 +159,50 @@ describe('GameService', () => {
     assert.equal(day?.cutVotes, 1);
     assert.equal('postId' in (day ?? {}), false);
   });
+
+  it('shows a stored 1-lock reveal from a test threshold as an early read', async () => {
+    const store = new MemoryStore();
+    const service = new GameService({ store });
+    await fillDay(service, '2026-11-16', [{ id: 'ana', choice: 'keep', prediction: 60 }]);
+    await service.getState(noonEt('2026-11-17'), actor('ana'));
+    const stored = store.days.get('2026-11-16');
+    assert.ok(stored?.snapshot);
+    stored.status = 'revealed';
+    stored.snapshot = {
+      ...stored.snapshot,
+      status: 'revealed',
+      keepPercent: 100,
+      closestGuesser: { userId: 'ana', username: 'ana', prediction: 60, error: 40, score: 60 },
+    };
+    await store.saveArchivePlay({
+      dayId: '2026-11-16',
+      userId: 'bo',
+      username: 'bo',
+      choice: 'keep',
+      prediction: 90,
+      score: 90,
+      error: 10,
+      keepPercent: 100,
+      playedAt: '2026-11-17T12:00:00.000Z',
+    });
+
+    const state = await service.getState(noonEt('2026-11-17'), actor('ana'));
+    assert.equal(state.recap?.snapshot.status, 'early_read');
+    assert.equal(state.recap?.snapshot.keepPercent, null);
+    assert.equal(state.recap?.snapshot.closestGuesser, null);
+    assert.equal(state.recap?.yourScore, null);
+    assert.deepEqual(state.recap?.yourLock, { choice: 'keep', prediction: 60 });
+    assert.equal(state.archive[0]?.status, 'early_read');
+    assert.equal(state.archive[0]?.keepPercent, null);
+    assert.equal(state.mostDivided, null);
+
+    const bo = await service.getState(noonEt('2026-11-17'), actor('bo'));
+    assert.equal(bo.archive[0]?.yourScore, null);
+    assert.equal(bo.recap?.yourLock, null);
+    await assert.rejects(() =>
+      service.playArchive(noonEt('2026-11-17'), actor('cy'), '2026-11-16', 'keep', 50)
+    );
+    // Read-path only: the stored record is left as it was.
+    assert.equal(store.days.get('2026-11-16')?.status, 'revealed');
+  });
 });

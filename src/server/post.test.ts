@@ -63,13 +63,13 @@ describe('ensureTodayPost', () => {
     assert.equal(second.created, false);
     assert.equal(first.post.id, second.post.id);
     assert.equal(board.submits, 1);
-    assert.equal(first.post.title, formatTodayPostTitle('2026-11-13'));
+    assert.equal(first.post.title, formatTodayPostTitle());
     assert.equal(board.stored.get('2026-11-13'), first.post.id);
   });
 
   it('returns an existing same-title post when the index is empty', async () => {
     const board = new MemoryBoard();
-    const title = formatTodayPostTitle('2026-11-13');
+    const title = formatTodayPostTitle();
     board.add({
       id: 't3_1xvacve',
       title,
@@ -86,7 +86,7 @@ describe('ensureTodayPost', () => {
 
   it('keeps the oldest of two same-day posts and does not make a third', async () => {
     const board = new MemoryBoard();
-    const title = formatTodayPostTitle('2026-11-13');
+    const title = formatTodayPostTitle();
     board.add({
       id: 't3_1xvaw1h',
       title,
@@ -109,7 +109,7 @@ describe('ensureTodayPost', () => {
 
   it('creates a new post if the stored one was removed', async () => {
     const board = new MemoryBoard();
-    const title = formatTodayPostTitle('2026-11-13');
+    const title = formatTodayPostTitle();
     board.add({
       id: 't3_gone',
       title,
@@ -138,11 +138,31 @@ describe('ensureTodayPost', () => {
   });
 
   it('ignores removed posts when picking an existing one', () => {
-    const title = formatTodayPostTitle('2026-11-13');
+    const title = formatTodayPostTitle();
     const kept = pickExistingTodayPost([
       { id: 't3_old', title, removed: true, createdAt: new Date('2026-11-13T15:00:00.000Z') },
       { id: 't3_ok', title, removed: false, createdAt: new Date('2026-11-13T16:00:00.000Z') },
     ]);
     assert.equal(kept?.id, 't3_ok');
+  });
+
+  it('uses an evergreen title with no date and no em dash', () => {
+    const title = formatTodayPostTitle();
+    assert.equal(title, 'Read the Room: one real rule a day. Keep it or cut it?');
+    assert.doesNotMatch(title, /\d{4}|Nov|\u2014/);
+  });
+
+  it("does not reuse yesterday's same-title post for a new day", async () => {
+    const board = new MemoryBoard();
+    board.add({
+      id: 't3_yesterday',
+      title: formatTodayPostTitle(),
+      removed: false,
+      createdAt: new Date('2026-11-12T16:00:00.000Z'),
+    });
+    const result = await ensureTodayPost(board, noonEt('2026-11-13'));
+    assert.equal(result.created, true);
+    assert.notEqual(result.post.id, 't3_yesterday');
+    assert.equal(board.submits, 1);
   });
 });

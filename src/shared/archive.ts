@@ -19,7 +19,8 @@ export function summarizeArchiveDay(input: {
     totalVotes: input.snapshot.totalVotes,
     keepPercent: input.snapshot.keepPercent,
     played: input.play !== null,
-    yourScore: input.play?.score ?? null,
+    // An early read has no official split, so an older stored score never shows.
+    yourScore: input.snapshot.status === 'revealed' ? (input.play?.score ?? null) : null,
   };
 }
 

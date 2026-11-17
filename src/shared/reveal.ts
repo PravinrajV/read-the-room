@@ -136,3 +136,33 @@ export function scoreAgainstSnapshot(
     score: scorePrediction(prediction, snapshot.keepPercent),
   };
 }
+
+/**
+ * Read-path guard for the reveal threshold. A stored snapshot marked revealed with
+ * fewer than the minimum locks (for example from a temporary test threshold) is
+ * shown as an early read: no split, no closest guesser, no score. Idempotent.
+ */
+export function normalizeSnapshot(
+  snapshot: DaySnapshot,
+  minVotes: number = MIN_REVEAL_VOTES
+): DaySnapshot {
+  if (snapshot.status !== 'revealed' || !isEarlyRead(snapshot.totalVotes, minVotes)) {
+    return snapshot;
+  }
+  return { ...snapshot, status: 'early_read', keepPercent: null, closestGuesser: null };
+}
+
+/** Same guard for a whole stored day record. Returns the input when nothing changes. */
+export function normalizeDayRecord<T extends { status: string; snapshot: DaySnapshot | null }>(
+  day: T,
+  minVotes: number = MIN_REVEAL_VOTES
+): T {
+  if (!day.snapshot) {
+    return day;
+  }
+  const snapshot = normalizeSnapshot(day.snapshot, minVotes);
+  if (snapshot === day.snapshot) {
+    return day;
+  }
+  return { ...day, status: day.status === 'open' ? day.status : snapshot.status, snapshot };
+}

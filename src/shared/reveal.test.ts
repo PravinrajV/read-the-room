@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { MIN_REVEAL_VOTES } from './constants.ts';
-import { closeDay, findClosestGuesser, findMostDividedCall, isEarlyRead, scoreAgainstSnapshot } from './reveal.ts';
+import {
+  closeDay,
+  findClosestGuesser,
+  findMostDividedCall,
+  isEarlyRead,
+  normalizeDayRecord,
+  normalizeSnapshot,
+  scoreAgainstSnapshot,
+} from './reveal.ts';
 import type { LockRecord } from './types.ts';
 
 function lock(
@@ -158,5 +166,44 @@ describe('reveal', () => {
     assert.equal(findMostDividedCall([lopsided('a', 100), lopsided('b', 80)]), null);
     assert.equal(findMostDividedCall([lopsided('a', 100), lopsided('c', 65)])?.dayId, 'c');
     assert.equal(findMostDividedCall([lopsided('d', 34)]), null);
+  });
+});
+
+describe('normalizeSnapshot', () => {
+  const base = {
+    dayId: '2026-11-16',
+    promptId: 'p',
+    closedAt: '2026-11-17T05:00:00.000Z',
+    keepVotes: 1,
+    cutVotes: 0,
+    totalVotes: 1,
+    status: 'revealed' as const,
+    keepPercent: 100,
+    closestGuesser: { userId: 'u', username: 'u', prediction: 50, error: 50, score: 50 },
+  };
+
+  it('rewrites an under-threshold revealed snapshot as an early read', () => {
+    const fixed = normalizeSnapshot(base);
+    assert.equal(fixed.status, 'early_read');
+    assert.equal(fixed.keepPercent, null);
+    assert.equal(fixed.closestGuesser, null);
+    assert.equal(fixed.totalVotes, 1);
+    assert.equal(scoreAgainstSnapshot(50, fixed), null);
+  });
+
+  it('is idempotent and leaves valid snapshots alone', () => {
+    const once = normalizeSnapshot(base);
+    assert.deepEqual(normalizeSnapshot(once), once);
+    const valid = { ...base, keepVotes: 7, cutVotes: 3, totalVotes: 10, keepPercent: 70 };
+    assert.equal(normalizeSnapshot(valid), valid);
+  });
+
+  it('normalizes a stored day record and keeps it unchanged when valid', () => {
+    const day = { status: 'revealed', snapshot: base };
+    const fixed = normalizeDayRecord(day);
+    assert.equal(fixed.status, 'early_read');
+    assert.equal(fixed.snapshot?.status, 'early_read');
+    const open = { status: 'open', snapshot: null };
+    assert.equal(normalizeDayRecord(open), open);
   });
 });

@@ -50,7 +50,7 @@ export async function ensureTodayPost(
   now: Date = new Date()
 ): Promise<EnsureTodayPostResult> {
   const dayId = dayIdFromInstant(now);
-  const title = formatTodayPostTitle(dayId);
+  const title = formatTodayPostTitle();
 
   const storedId = await board.getStoredPostId(dayId);
   const stored = storedId ? await board.getPost(storedId) : null;
@@ -58,7 +58,11 @@ export async function ensureTodayPost(
     return { post: stored, created: false };
   }
 
-  const existing = pickExistingTodayPost(await board.findPostsByTitle(title));
+  // The title is evergreen, so only a same-title post created on this Eastern day counts.
+  const sameDay = (await board.findPostsByTitle(title)).filter(
+    (post) => post.createdAt !== undefined && dayIdFromInstant(post.createdAt) === dayId
+  );
+  const existing = pickExistingTodayPost(sameDay);
   if (existing) {
     await board.storePostId(dayId, existing.id);
     return { post: existing, created: false };

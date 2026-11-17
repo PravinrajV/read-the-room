@@ -3,14 +3,18 @@ import type { GameStateResponse } from '../shared/api';
 import {
   addDays,
   dayIdFromInstant,
-  formatDayLabel,
   nextCloseAt,
   pendingCloseDayIds,
   zonedMidnight,
 } from '../shared/calendar';
 import { promptForDay } from '../shared/catalog';
 import { DAY_TIMEZONE } from '../shared/constants';
-import { closeDay, findMostDividedCall, scoreAgainstSnapshot } from '../shared/reveal';
+import {
+  closeDay,
+  findMostDividedCall,
+  normalizeDayRecord,
+  scoreAgainstSnapshot,
+} from '../shared/reveal';
 import { assertPrediction } from '../shared/scoring';
 import { emptyStreak, recordLivePlay } from '../shared/streak';
 import type {
@@ -179,7 +183,7 @@ export class GameService {
     if (choice !== 'keep' && choice !== 'cut') {
       throw new Error('Pick Keep or Cut first');
     }
-    const day = await this.store.getDay(dayId);
+    const day = await this.readDay(dayId);
     if (!day?.snapshot) {
       throw new Error('That day is not in the archive yet');
     }
@@ -200,8 +204,14 @@ export class GameService {
     return { play, state: await this.getState(now, actor) };
   }
 
+  /** Every read of a stored day goes through the reveal-threshold guard. */
+  private async readDay(dayId: string): Promise<DayRecord | null> {
+    const day = await this.store.getDay(dayId);
+    return day ? normalizeDayRecord(day) : null;
+  }
+
   private async ensureOpenDay(dayId: string, now: Date): Promise<DayRecord> {
-    const existing = await this.store.getDay(dayId);
+    const existing = await this.readDay(dayId);
     if (existing) {
       return existing;
     }
@@ -239,7 +249,7 @@ export class GameService {
 
   private async buildRecap(todayId: string, actor: Actor): Promise<YesterdayRecap | null> {
     const yesterdayId = addDays(todayId, -1);
-    const yesterday = await this.store.getDay(yesterdayId);
+    const yesterday = await this.readDay(yesterdayId);
     if (!yesterday?.snapshot) {
       return null;
     }
@@ -253,6 +263,7 @@ export class GameService {
       dayId: yesterdayId,
       prompt: promptForDay(yesterdayId),
       snapshot: yesterday.snapshot,
+      yourLock: yourLock ? { choice: yourLock.choice, prediction: yourLock.prediction } : null,
       yourScore,
       mostDivided: this.mostDividedFrom(archive),
     };
@@ -262,7 +273,7 @@ export class GameService {
     const ids = await this.store.listClosedDayIds();
     const days: ArchiveDaySummary[] = [];
     for (const dayId of ids) {
-      const day = await this.store.getDay(dayId);
+      const day = await this.readDay(dayId);
       if (!day?.snapshot) {
         continue;
       }
@@ -304,7 +315,9 @@ export class GameService {
   }
 }
 
-export function formatTodayPostTitle(dayId: string): string {
-  const prompt = promptForDay(dayId);
-  return `Read the Room: ${prompt.title} (${formatDayLabel(dayId)})`;
+/** A post shows whatever day's prompt is live when it's opened, so its title has no date. */
+export const EVERGREEN_POST_TITLE = 'Read the Room: one real rule a day. Keep it or cut it?';
+
+export function formatTodayPostTitle(): string {
+  return EVERGREEN_POST_TITLE;
 }

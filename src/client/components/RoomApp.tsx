@@ -1,9 +1,10 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { navigateTo } from '@devvit/web/client';
 import type { GameStateResponse } from '../../shared/api';
 import { formatDayLabel } from '../../shared/calendar';
 import { LOCAL_PREVIEW_BANNER, FIXTURE_BANNER } from '../../shared/constants';
 import { quickPlayQueue } from '../../shared/archive';
+import { buildRecapView, shouldShowRecapCard } from '../../shared/recap';
 import type { ArchiveDaySummary, VoteChoice } from '../../shared/types';
 import {
   CATEGORY_LABEL,
@@ -19,11 +20,25 @@ import {
   loginCta,
 } from '../copy';
 import { useCountdown } from '../hooks/useCountdown';
+import { useCountUp } from '../hooks/useCountUp';
 import { useGame } from '../hooks/useGame';
+import { readDismissedRecap, writeDismissedRecap } from '../theme';
+import {
+  ArchiveIcon,
+  CutIcon,
+  FlameIcon,
+  KeepIcon,
+  LockIcon,
+  SplitBar,
+  Stat,
+  ThemeToggle,
+  Wordmark,
+} from './ui';
 
 type Screen = 'today' | 'archive' | 'archive-play';
 
 const percentLabel = (value: number) => `${value}%`;
+const choiceLabel = (choice: VoteChoice) => (choice === 'keep' ? 'Keep' : 'Cut');
 
 export const RoomApp = () => {
   const { state, loading, error, lock, playArchive } = useGame();
@@ -33,11 +48,14 @@ export const RoomApp = () => {
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [archiveDay, setArchiveDay] = useState<ArchiveDaySummary | null>(null);
+  const [dismissedRecap, setDismissedRecap] = useState<string | null>(readDismissedRecap);
 
   if (loading && !state) {
     return (
       <Shell>
-        <p className="text-center text-[#c9bfae]">Lighting the room…</p>
+        <div className="flex flex-1 items-center justify-center">
+          <p className="text-center text-muted">Lighting the room…</p>
+        </div>
       </Shell>
     );
   }
@@ -45,10 +63,14 @@ export const RoomApp = () => {
   if (!state) {
     return (
       <Shell>
-        <p className="text-center text-[#d37a66]">{error ?? 'Could not load today.'}</p>
+        <div className="flex flex-1 items-center justify-center">
+          <p className="text-center text-cut">{error ?? 'Could not load today.'}</p>
+        </div>
       </Shell>
     );
   }
+
+  const showRecap = shouldShowRecapCard(state.recap?.dayId ?? null, dismissedRecap);
 
   return (
     <Shell
@@ -59,6 +81,14 @@ export const RoomApp = () => {
       {screen === 'today' ? (
         <TodayScreen
           state={state}
+          showRecap={showRecap}
+          onDismissRecap={() => {
+            if (state.recap) {
+              writeDismissedRecap(state.recap.dayId);
+              setDismissedRecap(state.recap.dayId);
+            }
+          }}
+          onOpenRecap={() => setDismissedRecap(null)}
           choice={choice}
           prediction={prediction}
           busy={busy}
@@ -134,9 +164,9 @@ const Shell = ({
   children: ReactNode;
   banner?: string | null;
 }) => (
-  <div className="room-shell flex h-full min-h-0 flex-col px-3 py-2 sm:px-6 sm:py-3">
+  <div className="room-shell flex h-full min-h-0 flex-col px-3 pt-2.5 sm:px-6 sm:pt-4">
     {banner ? (
-      <div className="mb-2 shrink-0 rounded-full border border-[#e4b65c]/40 bg-[#e4b65c]/10 px-3 py-1.5 text-center text-[0.7rem] tracking-wide text-[#e4b65c]">
+      <div className="mx-auto mb-2 w-full max-w-[34rem] shrink-0 rounded-full border border-[color-mix(in_srgb,var(--accent)_45%,transparent)] bg-[color-mix(in_srgb,var(--accent)_10%,transparent)] px-3 py-1 text-center text-[0.66rem] leading-snug tracking-wide text-accent">
         {banner}
       </div>
     ) : null}
@@ -148,6 +178,9 @@ const Shell = ({
 
 const TodayScreen = ({
   state,
+  showRecap,
+  onDismissRecap,
+  onOpenRecap,
   choice,
   prediction,
   busy,
@@ -158,6 +191,9 @@ const TodayScreen = ({
   onOpenArchive,
 }: {
   state: GameStateResponse;
+  showRecap: boolean;
+  onDismissRecap: () => void;
+  onOpenRecap: () => void;
   choice: VoteChoice | null;
   prediction: number;
   busy: boolean;
@@ -173,54 +209,75 @@ const TodayScreen = ({
   const revealed = state.status === 'revealed' && state.snapshot;
 
   const canPlayToday = state.status === 'open' && !state.player.lock;
+  const header = (
+    <Header
+      dayId={state.dayId}
+      remaining={remaining}
+      streak={state.player.streak.count}
+      onOpenArchive={onOpenArchive}
+      archiveCount={state.archive.length}
+    />
+  );
+
+  if (showRecap && state.recap) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="min-h-0 flex-1 overflow-y-auto pb-3">
+          {header}
+          <YesterdayCard recap={state.recap} />
+        </div>
+        <div className="shrink-0 border-t border-line pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <button
+            className="btn-gold w-full rounded-full px-5 py-3 text-sm font-semibold"
+            onClick={onDismissRecap}
+          >
+            {canPlayToday ? "Play today's call" : 'See today'}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <>
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="min-h-0 overflow-y-auto">
-      <Header
-        dayId={state.dayId}
-        remaining={remaining}
-        streak={state.player.streak.count}
-        onOpenArchive={onOpenArchive}
-        archiveCount={state.archive.length}
-      />
-      {state.recap ? <RecapStrip recap={state.recap} mostDivided={state.mostDivided} /> : null}
-      <PromptCard state={state} />
-      {state.player.lock && state.status === 'open' ? (
-        <LockedCard
-          choice={state.player.lock.choice}
-          prediction={state.player.lock.prediction}
-        />
-      ) : null}
-      {revealed && state.snapshot ? (
-        <RevealCard
-          snapshot={state.snapshot}
-          yourChoice={state.player.lock?.choice ?? null}
-          yourGuess={state.player.lock?.prediction ?? null}
-          yourScore={state.player.score}
-        />
-      ) : null}
-      {state.status === 'early_read' && state.snapshot ? (
-        <EarlyReadCard count={state.snapshot.totalVotes} />
-      ) : null}
-      {error ? <p className="mt-3 text-sm text-[#d37a66]">{error}</p> : null}
-      {!state.player.userId ? (
-        <p className="mt-3 text-sm text-[#c9bfae]">{loginCta}</p>
-      ) : null}
-      {state.commentUrl && (state.player.lock || state.status !== 'open') ? (
-        <button
-          className="mt-4 text-left text-sm text-[#e4b65c] underline-offset-4 hover:underline"
-          onClick={() => navigateTo(state.commentUrl as string)}
-        >
-          {commentCta}
-        </button>
-      ) : null}
-      {lockedChoice && revealed ? (
-        <p className="sr-only">
-          You picked {lockedChoice} and guessed {percentLabel(lockedPrediction)}.
-        </p>
-      ) : null}
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="min-h-0 flex-1 overflow-y-auto pb-3">
+        {header}
+        {state.recap ? (
+          <RecapStrip recap={state.recap} mostDivided={state.mostDivided} onOpen={onOpenRecap} />
+        ) : null}
+        <PromptCard state={state} />
+        {state.player.lock && state.status === 'open' ? (
+          <LockedCard
+            choice={state.player.lock.choice}
+            prediction={state.player.lock.prediction}
+          />
+        ) : null}
+        {revealed && state.snapshot ? (
+          <RevealCard
+            snapshot={state.snapshot}
+            yourChoice={state.player.lock?.choice ?? null}
+            yourGuess={state.player.lock?.prediction ?? null}
+            yourScore={state.player.score}
+          />
+        ) : null}
+        {state.status === 'early_read' && state.snapshot ? (
+          <EarlyReadCard count={state.snapshot.totalVotes} />
+        ) : null}
+        {error ? <p className="mt-3 text-sm text-cut">{error}</p> : null}
+        {!state.player.userId ? <p className="mt-3 text-sm text-muted">{loginCta}</p> : null}
+        {state.commentUrl && (state.player.lock || state.status !== 'open') ? (
+          <button
+            className="link mt-4 text-left text-sm"
+            onClick={() => navigateTo(state.commentUrl as string)}
+          >
+            {commentCta}
+          </button>
+        ) : null}
+        {lockedChoice && revealed ? (
+          <p className="sr-only">
+            You picked {lockedChoice} and guessed {percentLabel(lockedPrediction)}.
+          </p>
+        ) : null}
       </div>
       {canPlayToday ? (
         <PlayControls
@@ -233,8 +290,7 @@ const TodayScreen = ({
           onLock={onLock}
         />
       ) : null}
-      </div>
-    </>
+    </div>
   );
 };
 
@@ -251,27 +307,39 @@ const Header = ({
   onOpenArchive: () => void;
   archiveCount: number;
 }) => (
-  <header className="mb-2 flex items-start justify-between gap-3">
-    <div className="min-w-0">
-      <p className="text-[0.62rem] font-medium uppercase tracking-[0.2em] text-[#e4b65c]">
-        Read the Room
-      </p>
-      <p className="mt-0.5 text-xs text-[#c9bfae]">{formatDayLabel(dayId)}</p>
-    </div>
-    <div className="flex shrink-0 flex-col items-end gap-0.5">
-      <div className="flex items-center gap-2">
-        <div className="rounded-full border border-[rgba(243,234,216,0.14)] px-2.5 py-0.5 text-[0.7rem] text-[#f3ead8]">
-          {streak > 0 ? `Streak ${streak}` : 'No streak yet'}
-        </div>
-        <button
-          className="text-[0.7rem] text-[#e4b65c] underline-offset-4 hover:underline"
-          onClick={onOpenArchive}
-        >
-          Archive{archiveCount ? ` (${archiveCount})` : ''}
-        </button>
+  <header className="mb-2.5">
+    <div className="flex items-center justify-between gap-2">
+      <div className="min-w-0 shrink overflow-hidden whitespace-nowrap">
+        <Wordmark />
       </div>
-      {remaining ? <p className="whitespace-nowrap text-[0.7rem] text-[#c9bfae]">{remaining}</p> : null}
+      <div className="flex shrink-0 items-center gap-1.5">
+        <span
+          className="tabular inline-flex h-8 items-center gap-1.5 rounded-full border border-line px-2.5 text-[0.72rem] font-medium whitespace-nowrap text-fg-2"
+          aria-label={streak > 0 ? `Streak ${streak}` : 'No streak yet'}
+          title={streak > 0 ? `Streak ${streak}` : 'No streak yet'}
+        >
+          <FlameIcon className={`h-3.5 w-3.5 ${streak > 0 ? 'text-accent' : 'text-faint'}`} />
+          <span aria-hidden="true">{streak}</span>
+          <span className="hidden sm:inline" aria-hidden="true">
+            {streak === 1 ? 'day' : 'days'}
+          </span>
+        </span>
+        <button
+          className="btn-ghost tabular inline-flex h-8 items-center gap-1.5 rounded-full px-2.5 text-[0.72rem] font-medium"
+          onClick={onOpenArchive}
+          aria-label={archiveCount ? `Archive, ${archiveCount} days` : 'Archive'}
+        >
+          <ArchiveIcon className="h-3.5 w-3.5" />
+          <span className="hidden min-[400px]:inline">Archive</span>
+          {archiveCount ? <span className="text-faint">{archiveCount}</span> : null}
+        </button>
+        <ThemeToggle />
+      </div>
     </div>
+    <p className="tabular mt-1 text-xs whitespace-nowrap text-muted">
+      {formatDayLabel(dayId)}
+      {remaining ? <span className="text-faint"> · {remaining}</span> : null}
+    </p>
   </header>
 );
 
@@ -280,35 +348,28 @@ const PromptCard = ({ state }: { state: GameStateResponse }) => {
   const canToggle = state.prompt.scenario.length > 160;
 
   return (
-    <article className="room-card rounded-2xl px-4 py-3 sm:rounded-3xl sm:px-5 sm:py-5">
-      <p className="text-[0.62rem] font-medium uppercase tracking-[0.18em] text-[#e4b65c]">
-        {CATEGORY_LABEL[state.prompt.category] ?? state.prompt.category}
-      </p>
-      <h1 className="font-serif mt-1 text-[1.3rem] leading-tight text-[#f3ead8] sm:text-[1.55rem]">
+    <article className="room-card rounded-2xl px-4 py-3.5 sm:rounded-3xl sm:px-5 sm:py-5">
+      <p className="eyebrow">{CATEGORY_LABEL[state.prompt.category] ?? state.prompt.category}</p>
+      <h1 className="font-serif mt-1.5 text-[1.32rem] leading-[1.18] tracking-[-0.01em] text-fg sm:text-[1.6rem]">
         {state.prompt.title}
       </h1>
       <p
-        className={`mt-2 text-sm leading-snug text-[#ddd3c2] sm:leading-relaxed ${
+        className={`mt-2 text-sm leading-snug text-fg-2 sm:leading-relaxed ${
           canToggle && !expanded ? 'line-clamp-3' : ''
         }`}
       >
         {state.prompt.scenario}
       </p>
       {canToggle ? (
-        <button
-          className="mt-1 text-xs text-[#e4b65c] underline-offset-4 hover:underline"
-          onClick={() => setExpanded((open) => !open)}
-        >
+        <button className="link mt-1 text-xs font-medium" onClick={() => setExpanded((open) => !open)}>
           {expanded ? 'Show less' : 'More'}
         </button>
       ) : null}
-      <p className="mt-2 text-[0.7rem] leading-snug text-[#9b9084]">
+      <div className="hairline mt-3" />
+      <p className="mt-2.5 text-[0.7rem] leading-snug text-faint">
         Source: {state.prompt.source.publisher}, as of{' '}
         <span className="whitespace-nowrap">{state.prompt.source.asOf}</span>.{' '}
-        <button
-          className="text-[#e4b65c] underline-offset-4 hover:underline"
-          onClick={() => navigateTo(state.prompt.source.url)}
-        >
+        <button className="link" onClick={() => navigateTo(state.prompt.source.url)}>
           {state.prompt.source.title}
         </button>
       </p>
@@ -333,39 +394,57 @@ const PlayControls = ({
   onPrediction: (value: number) => void;
   onLock: () => void;
 }) => (
-  <section className="room-actions shrink-0 border-t border-[rgba(243,234,216,0.1)] bg-[#0c0b0a] pt-3 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-    <p className="text-xs text-[#c9bfae] sm:text-sm">{keepCutPrompt}</p>
+  <section className="room-actions shrink-0 border-t border-line pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+    <p className="text-xs font-medium text-fg-2 sm:text-sm">{keepCutPrompt}</p>
     <div className="mt-2 grid grid-cols-2 gap-2">
-      <ChoiceButton kind="keep" active={choice === 'keep'} onClick={() => onChoice('keep')} />
-      <ChoiceButton kind="cut" active={choice === 'cut'} onClick={() => onChoice('cut')} />
+      <ChoiceButton
+        kind="keep"
+        active={choice === 'keep'}
+        dim={choice === 'cut'}
+        onClick={() => onChoice('keep')}
+      />
+      <ChoiceButton
+        kind="cut"
+        active={choice === 'cut'}
+        dim={choice === 'keep'}
+        onClick={() => onChoice('cut')}
+      />
     </div>
     <label className="mt-3 block">
-      <span className="text-xs text-[#c9bfae] sm:text-sm">{guessPrompt}</span>
-      <div className="mt-1 flex items-end justify-between">
-        <span className="font-serif text-3xl leading-none text-[#e4b65c] sm:text-4xl">
+      <span className="flex items-end justify-between gap-3">
+        <span className="text-xs font-medium text-fg-2 sm:text-sm">{guessPrompt}</span>
+        <span className="tabular shrink-0 font-serif text-[1.9rem] leading-none text-accent sm:text-4xl">
           {percentLabel(prediction)}
+          <span className="ml-1 font-sans text-xs font-medium text-faint">Keep</span>
         </span>
-        <span className="text-xs text-[#9b9084]">Keep</span>
-      </div>
+      </span>
       <input
-        className="mt-2"
+        className="guess mt-1.5"
         type="range"
         min={0}
         max={100}
         step={1}
         value={prediction}
+        style={{ '--value': `${prediction}%` } as CSSProperties}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={prediction}
+        aria-valuetext={`${prediction}% Keep`}
         aria-label={guessPrompt}
         onChange={(event) => onPrediction(Number(event.target.value))}
       />
+      <span className="tabular flex justify-between text-[0.62rem] text-faint" aria-hidden="true">
+        <span>0</span>
+        <span>50</span>
+        <span>100</span>
+      </span>
     </label>
     <button
-      className="mt-3 w-full rounded-full bg-[#e4b65c] px-5 py-2.5 text-sm font-medium text-[#0c0b0a] transition enabled:hover:bg-[#f0c56f] disabled:cursor-not-allowed disabled:opacity-50"
+      className="btn-gold mt-2.5 flex w-full items-center justify-center gap-2 rounded-full px-5 py-3 text-sm font-semibold"
       disabled={!canLock || busy || !choice}
       onClick={onLock}
     >
+      <LockIcon className="h-4 w-4" />
       {busy ? 'Locking…' : lockLabel}
     </button>
   </section>
@@ -374,45 +453,172 @@ const PlayControls = ({
 const ChoiceButton = ({
   kind,
   active,
+  dim,
   onClick,
 }: {
   kind: VoteChoice;
   active: boolean;
+  dim: boolean;
   onClick: () => void;
 }) => (
   <button
-    className={`h-10 rounded-2xl border text-sm font-medium tracking-wide transition sm:h-12 ${
-      kind === 'keep' ? 'keep-btn' : 'cut-btn'
-    } ${
-      active
-        ? 'border-transparent'
-        : 'border-[rgba(243,234,216,0.14)] bg-transparent text-[#f3ead8] hover:border-[rgba(243,234,216,0.35)]'
-    }`}
+    className="choice flex h-11 items-center justify-center gap-2 rounded-2xl text-sm font-semibold tracking-wide sm:h-12"
+    data-kind={kind}
     data-active={active ? 'true' : 'false'}
+    data-dim={dim ? 'true' : 'false'}
     aria-pressed={active}
     onClick={onClick}
   >
-    {kind === 'keep' ? 'Keep' : 'Cut'}
+    {kind === 'keep' ? (
+      <KeepIcon className="choice-icon h-[18px] w-[18px]" />
+    ) : (
+      <CutIcon className="choice-icon h-[18px] w-[18px]" />
+    )}
+    {choiceLabel(kind)}
   </button>
 );
 
-const LockedCard = ({
-  choice,
-  prediction,
-}: {
-  choice: VoteChoice;
-  prediction: number;
-}) => (
-  <section className="room-card mt-6 rounded-3xl px-5 py-5">
-    <p className="text-[0.65rem] font-medium uppercase tracking-[0.18em] text-[#e4b65c]">
-      Locked
+const LockedCard = ({ choice, prediction }: { choice: VoteChoice; prediction: number }) => (
+  <section className="room-card rise mt-3 rounded-3xl px-5 py-5">
+    <div className="flex items-center gap-3">
+      <span className="relative grid h-11 w-11 shrink-0 place-items-center text-accent">
+        <svg viewBox="0 0 44 44" className="absolute inset-0 h-11 w-11 -rotate-90" aria-hidden="true">
+          <circle cx="22" cy="22" r="20" fill="none" stroke="var(--line)" strokeWidth="2" />
+          <circle
+            className="seal-ring"
+            cx="22"
+            cy="22"
+            r="20"
+            fill="none"
+            stroke="var(--accent)"
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+        </svg>
+        <LockIcon className="h-5 w-5" />
+      </span>
+      <div className="min-w-0">
+        <p className="eyebrow">Locked</p>
+        <p className="mt-0.5 text-xs text-muted">Sealed until midnight ET</p>
+      </div>
+    </div>
+    <p className="mt-4 font-serif text-[1.45rem] leading-snug text-fg sm:text-2xl">
+      You said {choiceLabel(choice)}, and guessed {percentLabel(prediction)} Keep.
     </p>
-    <p className="mt-2 font-serif text-2xl text-[#f3ead8]">
-      You said {choice === 'keep' ? 'Keep' : 'Cut'}, and guessed {percentLabel(prediction)} Keep.
-    </p>
-    <p className="mt-3 text-sm leading-relaxed text-[#c9bfae]">{lockedWait}</p>
+    <div className="mt-4">
+      <div className="relative h-1.5 rounded-full bg-[var(--track)]">
+        <div
+          className="absolute inset-y-0 left-0 rounded-full bg-gold"
+          style={{ width: `${prediction}%` }}
+        />
+        <span
+          className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[var(--surface-flat)] bg-gold"
+          style={{ left: `${prediction}%` }}
+          aria-hidden="true"
+        />
+      </div>
+      <div className="tabular mt-1.5 flex justify-between text-[0.62rem] text-faint" aria-hidden="true">
+        <span>0</span>
+        <span>Your guess</span>
+        <span>100</span>
+      </div>
+    </div>
+    <p className="mt-4 text-sm leading-relaxed text-muted">{lockedWait}</p>
   </section>
 );
+
+/** Big real number, counting up from zero. */
+const BigPercent = ({ value }: { value: number }) => {
+  const shown = useCountUp(value);
+  return (
+    <span className="tabular font-serif text-[3.2rem] leading-none tracking-[-0.02em] text-fg sm:text-6xl">
+      {shown}
+      <span className="text-[0.55em] text-faint">%</span>
+    </span>
+  );
+};
+
+const ScoreCount = ({ value }: { value: number }) => {
+  const shown = useCountUp(value, 1200, 700);
+  return <>{shown}</>;
+};
+
+const YesterdayCard = ({ recap }: { recap: NonNullable<GameStateResponse['recap']> }) => {
+  const view = buildRecapView(recap);
+  return (
+    <section
+      className="room-card rise overflow-hidden rounded-3xl px-4 py-4 sm:px-5 sm:py-5"
+      aria-label="Yesterday's room"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <p className="eyebrow">Yesterday&apos;s room</p>
+        <p className="tabular text-[0.7rem] text-faint">{formatDayLabel(view.dayId)}</p>
+      </div>
+      <h2 className="font-serif mt-1.5 text-[1.2rem] leading-snug text-fg sm:text-[1.4rem]">
+        {view.title}
+      </h2>
+
+      {view.kind === 'revealed' ? (
+        <>
+          <div className="mt-4 flex items-end gap-3">
+            <BigPercent value={view.keepPercent} />
+            <p className="pb-1.5 text-sm leading-snug text-muted">
+              of {locksLabel(view.totalVotes)}
+              <br />
+              said Keep
+            </p>
+          </div>
+          <div className="mt-4">
+            <SplitBar
+              keepPercent={view.keepPercent}
+              marker={view.yourGuess}
+              markerLabel={view.yourGuess !== null ? `You ${percentLabel(view.yourGuess)}` : undefined}
+            />
+            <div className="tabular mt-2 flex justify-between text-xs font-medium">
+              <span className="text-keep">Keep {percentLabel(view.keepPercent)}</span>
+              <span className="text-cut">Cut {percentLabel(view.cutPercent)}</span>
+            </div>
+          </div>
+          {view.yourChoice && view.yourGuess !== null ? (
+            <div className="mt-4 grid grid-cols-3 gap-2">
+              <Stat label="Your call">{choiceLabel(view.yourChoice)}</Stat>
+              <Stat label="Guess">
+                {percentLabel(view.yourGuess)}
+                {view.guessError !== null ? (
+                  <span className="text-faint"> ±{view.guessError}</span>
+                ) : null}
+              </Stat>
+              <Stat label="Score">
+                {view.yourScore !== null ? <ScoreCount value={view.yourScore} /> : 'None'}
+              </Stat>
+            </div>
+          ) : (
+            <p className="mt-4 text-sm text-muted">You didn&apos;t lock a call that day.</p>
+          )}
+          {view.closest ? (
+            <p className="mt-3 text-xs text-muted">
+              Closest guess: <span className="font-medium text-fg">u/{view.closest.username}</span>,
+              off by {view.closest.error}.
+            </p>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <p className="mt-4 font-serif text-[1.6rem] leading-tight text-fg">
+            {earlyReadLabel}, {locksLabel(view.totalVotes)}
+          </p>
+          <div className="mt-3 h-3 rounded-full border border-dashed border-line-strong" aria-hidden="true" />
+          <p className="mt-3 text-sm leading-relaxed text-muted">{earlyReadBody}</p>
+          {view.yourChoice && view.yourGuess !== null ? (
+            <p className="mt-3 text-sm text-fg-2">
+              You said {choiceLabel(view.yourChoice)} and guessed {percentLabel(view.yourGuess)} Keep.
+            </p>
+          ) : null}
+        </>
+      )}
+    </section>
+  );
+};
 
 const RevealCard = ({
   snapshot,
@@ -427,29 +633,31 @@ const RevealCard = ({
 }) => {
   const keep = snapshot.keepPercent ?? 0;
   return (
-    <section className="room-card mt-6 rounded-3xl px-5 py-5">
-      <p className="text-[0.65rem] font-medium uppercase tracking-[0.18em] text-[#e4b65c]">
-        The room
-      </p>
-      <p className="mt-2 font-serif text-3xl text-[#f3ead8]">{percentLabel(keep)} said Keep</p>
-      <div className="mt-4 h-2 overflow-hidden rounded-full bg-[rgba(243,234,216,0.12)]">
-        <div
-          className="h-full rounded-full bg-[#8fb57a] transition-[width] duration-700"
-          style={{ width: `${keep}%` }}
+    <section className="room-card rise mt-3 rounded-3xl px-5 py-5">
+      <p className="eyebrow">The room</p>
+      <div className="mt-3 flex items-end gap-3">
+        <BigPercent value={keep} />
+        <p className="pb-1.5 text-sm text-muted">said Keep</p>
+      </div>
+      <div className="mt-4">
+        <SplitBar
+          keepPercent={keep}
+          marker={yourGuess}
+          markerLabel={yourGuess !== null ? `You ${percentLabel(yourGuess)}` : undefined}
         />
       </div>
-      <p className="mt-3 text-sm text-[#c9bfae]">
+      <p className="mt-3 text-sm text-muted">
         {locksLabel(snapshot.totalVotes)}. {percentLabel(100 - keep)} said Cut.
       </p>
       {yourGuess !== null ? (
-        <p className="mt-4 text-sm text-[#f3ead8]">
+        <p className="mt-4 text-sm text-fg">
           You picked {yourChoice === 'keep' ? 'Keep' : 'Cut'} and guessed{' '}
           {percentLabel(yourGuess)}.
           {yourScore !== null ? ` That's a ${yourScore}.` : ''}
         </p>
       ) : null}
       {snapshot.closestGuesser ? (
-        <p className="mt-3 text-sm text-[#c9bfae]">
+        <p className="mt-3 text-sm text-muted">
           Closest guess: u/{snapshot.closestGuesser.username}, off by{' '}
           {snapshot.closestGuesser.error}.
         </p>
@@ -459,36 +667,46 @@ const RevealCard = ({
 };
 
 const EarlyReadCard = ({ count }: { count: number }) => (
-  <section className="room-card mt-6 rounded-3xl px-5 py-5">
-    <p className="text-[0.65rem] font-medium uppercase tracking-[0.18em] text-[#e4b65c]">
-      {earlyReadLabel}
-    </p>
-    <p className="mt-2 font-serif text-2xl text-[#f3ead8]">{locksLabel(count)}</p>
-    <p className="mt-3 text-sm leading-relaxed text-[#c9bfae]">{earlyReadBody}</p>
+  <section className="room-card rise mt-3 rounded-3xl px-5 py-5">
+    <p className="eyebrow">{earlyReadLabel}</p>
+    <p className="mt-2 font-serif text-2xl text-fg">{locksLabel(count)}</p>
+    <p className="mt-3 text-sm leading-relaxed text-muted">{earlyReadBody}</p>
   </section>
 );
 
 const RecapStrip = ({
   recap,
   mostDivided,
+  onOpen,
 }: {
   recap: NonNullable<GameStateResponse['recap']>;
   mostDivided: GameStateResponse['mostDivided'];
+  onOpen: () => void;
 }) => (
-  <section className="mb-2 rounded-xl border border-[rgba(243,234,216,0.1)] px-3 py-1.5 text-xs leading-snug text-[#c9bfae] sm:rounded-2xl sm:px-4 sm:py-2.5 sm:text-sm">
-    <p>
-      <span className="font-medium uppercase tracking-[0.16em] text-[#e4b65c]">Yesterday</span>
-      {' · '}
-      <span className="text-[#f3ead8]">{recap.prompt.title}</span>
-      {recap.snapshot.status === 'early_read'
-        ? `. ${earlyReadLabel}, ${locksLabel(recap.snapshot.totalVotes)}.`
-        : `. ${percentLabel(recap.snapshot.keepPercent ?? 0)} of ${locksLabel(recap.snapshot.totalVotes)} said Keep.${
-            recap.yourScore !== null ? ` You scored ${recap.yourScore}.` : ''
-          }`}
-      {mostDivided && mostDivided.dayId !== recap.dayId
-        ? ` Most divided: ${mostDivided.promptTitle} at ${percentLabel(mostDivided.keepPercent)} Keep.`
-        : ''}
-    </p>
+  <section className="mb-2.5 rounded-2xl border border-line bg-[var(--highlight)] px-3 py-2 text-xs leading-snug text-muted sm:px-4 sm:py-2.5 sm:text-sm">
+    <div className="flex items-start gap-3">
+      <p className="min-w-0 flex-1">
+        <span className="font-semibold uppercase tracking-[0.16em] text-accent">Yesterday</span>
+        {' · '}
+        <span className="text-fg">{recap.prompt.title}</span>
+        {recap.snapshot.status === 'early_read'
+          ? `. ${earlyReadLabel}, ${locksLabel(recap.snapshot.totalVotes)}.`
+          : `. ${percentLabel(recap.snapshot.keepPercent ?? 0)} of ${locksLabel(recap.snapshot.totalVotes)} said Keep.${
+              recap.yourScore !== null ? ` You scored ${recap.yourScore}.` : ''
+            }`}
+        {mostDivided && mostDivided.dayId !== recap.dayId
+          ? ` Most divided: ${mostDivided.promptTitle} at ${percentLabel(mostDivided.keepPercent)} Keep.`
+          : ''}
+      </p>
+      <button className="link shrink-0 text-xs font-medium" onClick={onOpen}>
+        Replay
+      </button>
+    </div>
+    {recap.snapshot.status === 'revealed' && recap.snapshot.keepPercent !== null ? (
+      <div className="mt-2">
+        <SplitBar keepPercent={recap.snapshot.keepPercent} height="sm" />
+      </div>
+    ) : null}
   </section>
 );
 
@@ -503,20 +721,21 @@ const ArchiveScreen = ({
 }) => {
   const queue = useMemo(() => quickPlayQueue(state.archive, 5), [state.archive]);
   return (
-    <section className="min-h-0 flex-1 overflow-y-auto">
-      <button className="text-xs text-[#e4b65c] underline-offset-4 hover:underline" onClick={onBack}>
-        Back to today
-      </button>
-      <h1 className="font-serif mt-3 text-3xl text-[#f3ead8]">Archive</h1>
-      <p className="mt-2 text-sm text-[#c9bfae]">
+    <section className="min-h-0 flex-1 overflow-y-auto pb-4">
+      <div className="flex items-center justify-between gap-2">
+        <button className="link text-xs font-medium" onClick={onBack}>
+          ← Back to today
+        </button>
+        <ThemeToggle />
+      </div>
+      <h1 className="font-serif mt-2 text-3xl tracking-[-0.01em] text-fg">Archive</h1>
+      <p className="mt-1.5 text-sm text-muted">
         Play closed days against their frozen real split. This never changes the official room.
       </p>
-      {state.fixture ? (
-        <p className="mt-3 text-xs text-[#e4b65c]">{FIXTURE_BANNER}</p>
-      ) : null}
+      {state.fixture ? <p className="mt-2 text-xs text-accent">{FIXTURE_BANNER}</p> : null}
       {queue.length > 0 ? (
         <button
-          className="mt-4 rounded-full bg-[#e4b65c] px-4 py-2 text-sm font-medium text-[#0c0b0a]"
+          className="btn-gold mt-4 rounded-full px-4 py-2 text-sm font-semibold"
           onClick={() => {
             const first = queue[0];
             if (first) {
@@ -528,33 +747,57 @@ const ArchiveScreen = ({
         </button>
       ) : null}
       {state.archive.length === 0 ? (
-        <p className="room-card mt-6 rounded-3xl px-5 py-6 text-sm leading-relaxed text-[#c9bfae]">
+        <p className="room-card mt-5 rounded-3xl px-5 py-6 text-sm leading-relaxed text-muted">
           {emptyArchive}
         </p>
       ) : (
-        <ul className="mt-5 space-y-3">
-          {state.archive.map((day) => (
-            <li key={day.dayId} className="room-card rounded-2xl px-4 py-4">
-              <p className="text-xs text-[#9b9084]">{formatDayLabel(day.dayId)}</p>
-              <p className="mt-1 font-serif text-xl text-[#f3ead8]">{day.prompt.title}</p>
+        <ul className="mt-4 space-y-2.5">
+          {state.archive.map((day, index) => (
+            <li
+              key={day.dayId}
+              className="room-card rise rounded-2xl px-4 py-3.5"
+              style={{ animationDelay: `${Math.min(index, 6) * 50}ms` }}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <p className="tabular text-[0.7rem] text-faint">{formatDayLabel(day.dayId)}</p>
+                {day.status === 'early_read' ? (
+                  <span className="rounded-full border border-line px-2 py-0.5 text-[0.62rem] font-medium uppercase tracking-[0.12em] text-muted">
+                    {earlyReadLabel}
+                  </span>
+                ) : day.played ? (
+                  <span className="tabular rounded-full bg-[color-mix(in_srgb,var(--accent)_16%,transparent)] px-2 py-0.5 text-[0.66rem] font-semibold text-accent">
+                    Scored {day.yourScore}
+                  </span>
+                ) : null}
+              </div>
+              <p className="mt-1 font-serif text-lg leading-snug text-fg">{day.prompt.title}</p>
               {day.status === 'early_read' ? (
-                <p className="mt-2 text-sm text-[#c9bfae]">
-                  {earlyReadLabel}. {locksLabel(day.totalVotes)}. No official split.
-                </p>
+                <>
+                  <div className="mt-2.5 h-1.5 rounded-full border border-dashed border-line-strong" aria-hidden="true" />
+                  <p className="mt-2 text-xs text-muted">
+                    {earlyReadLabel}. {locksLabel(day.totalVotes)}. No official split.
+                  </p>
+                </>
               ) : (
-                <p className="mt-2 text-sm text-[#c9bfae]">
-                  {percentLabel(day.keepPercent ?? 0)} Keep, {locksLabel(day.totalVotes)}.
-                  {day.played ? ` Your score: ${day.yourScore}.` : ''}
-                </p>
+                <>
+                  <div className="mt-2.5">
+                    <SplitBar keepPercent={day.keepPercent ?? 0} height="sm" />
+                  </div>
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <p className="tabular text-xs text-muted">
+                      {percentLabel(day.keepPercent ?? 0)} Keep, {locksLabel(day.totalVotes)}.
+                    </p>
+                    {!day.played ? (
+                      <button
+                        className="btn-ghost shrink-0 rounded-full px-3 py-1 text-xs font-medium"
+                        onClick={() => onPlay(day)}
+                      >
+                        Play this day
+                      </button>
+                    ) : null}
+                  </div>
+                </>
               )}
-              {day.status === 'revealed' && !day.played ? (
-                <button
-                  className="mt-3 text-sm text-[#e4b65c] underline-offset-4 hover:underline"
-                  onClick={() => onPlay(day)}
-                >
-                  Play this day
-                </button>
-              ) : null}
             </li>
           ))}
         </ul>
@@ -584,13 +827,26 @@ const ArchivePlayScreen = ({
   onBack: () => void;
   onSubmit: () => void;
 }) => (
-  <section className="min-h-0 flex-1 overflow-y-auto">
-    <button className="text-xs text-[#e4b65c] underline-offset-4 hover:underline" onClick={onBack}>
-      Back to archive
-    </button>
-    <p className="mt-3 text-xs text-[#9b9084]">{formatDayLabel(day.dayId)}</p>
-    <h1 className="font-serif mt-1 text-3xl text-[#f3ead8]">{day.prompt.title}</h1>
-    <p className="mt-3 text-sm leading-relaxed text-[#ddd3c2]">{day.prompt.scenario}</p>
+  <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+    <section className="min-h-0 flex-1 overflow-y-auto pb-3">
+      <div className="flex items-center justify-between gap-2">
+        <button className="link text-xs font-medium" onClick={onBack}>
+          ← Back to archive
+        </button>
+        <ThemeToggle />
+      </div>
+      <article className="room-card rise mt-3 rounded-2xl px-4 py-4 sm:rounded-3xl sm:px-5">
+        <div className="flex items-center justify-between gap-2">
+          <p className="eyebrow">{CATEGORY_LABEL[day.prompt.category] ?? day.prompt.category}</p>
+          <p className="tabular text-[0.7rem] text-faint">{formatDayLabel(day.dayId)}</p>
+        </div>
+        <h1 className="font-serif mt-1.5 text-[1.45rem] leading-[1.18] text-fg sm:text-3xl">
+          {day.prompt.title}
+        </h1>
+        <p className="mt-2 text-sm leading-relaxed text-fg-2">{day.prompt.scenario}</p>
+      </article>
+      {error ? <p className="mt-3 text-sm text-cut">{error}</p> : null}
+    </section>
     <PlayControls
       canLock={!busy}
       choice={choice}
@@ -600,6 +856,5 @@ const ArchivePlayScreen = ({
       onPrediction={onPrediction}
       onLock={onSubmit}
     />
-    {error ? <p className="mt-3 text-sm text-[#d37a66]">{error}</p> : null}
-  </section>
+  </div>
 );

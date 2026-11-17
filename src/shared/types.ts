@@ -107,6 +107,8 @@ export type YesterdayRecap = {
   dayId: string;
   prompt: Prompt;
   snapshot: DaySnapshot;
+  /** The viewer's own call and guess for that day, if they locked one. */
+  yourLock: { choice: VoteChoice; prediction: number } | null;
   yourScore: number | null;
   mostDivided: MostDividedCall | null;
 };
