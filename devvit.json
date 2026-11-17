@@ -1,0 +1,61 @@
+{
+  "$schema": "https://developers.reddit.com/schema/config-file.v1.json",
+  "name": "readtheroomgame",
+  "post": {
+    "dir": "dist/client",
+    "entrypoints": {
+      "default": {
+        "inline": true,
+        "entry": "splash.html",
+        "height": "tall"
+      },
+      "game": {
+        "entry": "game.html"
+      }
+    }
+  },
+  "server": {
+    "dir": "dist/server",
+    "entry": "index.cjs"
+  },
+  "permissions": {
+    "http": {
+      "enable": false
+    },
+    "payments": false,
+    "realtime": false,
+    "redis": true,
+    "reddit": {
+      "enable": true
+    }
+  },
+  "menu": {
+    "items": [
+      {
+        "label": "Post today's Read the Room",
+        "description": "Create a daily Read the Room post",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/post-create"
+      }
+    ]
+  },
+  "triggers": {
+    "onAppInstall": "/internal/triggers/on-app-install"
+  },
+  "scheduler": {
+    "tasks": {
+      "day-close": {
+        "endpoint": "/internal/cron/day-close",
+        "cron": "0 * * * *"
+      }
+    }
+  },
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "vite build"
+  },
+  "dev": {
+    "subreddit": "readtheroomgame_dev"
+  }
+}
